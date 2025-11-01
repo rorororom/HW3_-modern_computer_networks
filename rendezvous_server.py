@@ -10,7 +10,7 @@ class RendezvousServer:
     def __init__(self, host='0.0.0.0', port=8888):
         self.host = host
         self.port = port
-        self.clients = {}  # client_id -> {'addr': addr, 'public_addr': public_addr}
+        self.clients = {}
         
     def start(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -28,7 +28,6 @@ class RendezvousServer:
             msg_type = message.get('type')
             
             if msg_type == 'register':
-                # Сохраняем и приватный и публичный адрес
                 public_addr = message.get('public_addr', addr)
                 self.clients[client_id] = {
                     'private_addr': addr,
@@ -45,7 +44,6 @@ class RendezvousServer:
                     client_a_info = self.clients[client_id]
                     client_b_info = self.clients[target_id]
                     
-                    # Отправляем клиенту A информацию о клиенте B
                     response_a = {
                         'type': 'peer_info', 
                         'peer_id': target_id,
@@ -54,7 +52,6 @@ class RendezvousServer:
                     }
                     sock.sendto(json.dumps(response_a).encode(), client_a_info['private_addr'])
                     
-                    # Отправляем клиенту B информацию о клиенте A
                     response_b = {
                         'type': 'peer_info',
                         'peer_id': client_id, 
@@ -64,7 +61,6 @@ class RendezvousServer:
                     sock.sendto(json.dumps(response_b).encode(), client_b_info['private_addr'])
                     
                     logging.info(f"Connected {client_id} with {target_id}")
-                    logging.info(f"Peer addresses exchanged successfully")
                 else:
                     response = {'type': 'peer_not_found'}
                     sock.sendto(json.dumps(response).encode(), addr)
