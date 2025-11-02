@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import socket
-import threading
 import json
+import threading
 import logging
+import sys
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -15,59 +16,68 @@ class RendezvousServer:
     def start(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((self.host, self.port))
-        logging.info(f"Rendezvous server started on {self.host}:{self.port}")
+        logging.info(f"Сервер запущен на {self.host}:{self.port}")
         
         while True:
             data, addr = sock.recvfrom(1024)
-            threading.Thread(target=self.handle_client, args=(data, addr, sock)).start()
+            threading.Thread(target=self.handle_client, args=(data, addr, sock), daemon=True).start()
     
-    def handle_client(self, data, addr, sock):
+    def handle_client(self, data, client_addr, sock):
         try:
             message = json.loads(data.decode())
             client_id = message.get('client_id')
             msg_type = message.get('type')
             
+            logging.info(f"Получено {msg_type} от {client_id} с адреса {client_addr}")
+            
             if msg_type == 'register':
-                public_addr = message.get('public_addr', addr)
                 self.clients[client_id] = {
-                    'private_addr': addr,
-                    'public_addr': public_addr
+                    'private_addr': message.get('local_addr', client_addr),
+                    'public_addr': client_addr
                 }
-                logging.info(f"Client {client_id} registered: private={addr}, public={public_addr}")
                 
-                response = {'type': 'registered', 'your_public_addr': public_addr}
-                sock.sendto(json.dumps(response).encode(), addr)
+                response = {
+                    'type': 'registered', 
+                    'your_public_addr': list(client_addr)
+                }
+                sock.sendto(json.dumps(response).encode(), client_addr)
+                logging.info(f"Клиент {client_id} зарегистрирован")
                 
             elif msg_type == 'connect_request':
                 target_id = message.get('target_id')
-                if target_id in self.clients:
-                    client_a_info = self.clients[client_id]
-                    client_b_info = self.clients[target_id]
-                    
-                    response_a = {
-                        'type': 'peer_info', 
-                        'peer_id': target_id,
-                        'peer_private_addr': client_b_info['private_addr'],
-                        'peer_public_addr': client_b_info['public_addr']
-                    }
-                    sock.sendto(json.dumps(response_a).encode(), client_a_info['private_addr'])
-                    
-                    response_b = {
-                        'type': 'peer_info',
-                        'peer_id': client_id, 
-                        'peer_private_addr': client_a_info['private_addr'],
-                        'peer_public_addr': client_a_info['public_addr']
-                    }
-                    sock.sendto(json.dumps(response_b).encode(), client_b_info['private_addr'])
-                    
-                    logging.info(f"Connected {client_id} with {target_id}")
-                else:
+                
+                if target_id not in self.clients:
                     response = {'type': 'peer_not_found'}
-                    sock.sendto(json.dumps(response).encode(), addr)
-                    
+                    sock.sendto(json.dumps(response).encode(), client_addr)
+                    return
+                
+                client_a = self.clients[client_id]
+                client_b = self.clients[target_id]
+                
+                response_a = {
+                    'type': 'peer_info', 
+                    'peer_id': target_id,
+                    'peer_private_addr': list(client_b['private_addr']),
+                    'peer_public_addr': list(client_b['public_addr'])
+                }
+                sock.sendto(json.dumps(response_a).encode(), client_a['public_addr'])
+                
+                response_b = {
+                    'type': 'peer_info',
+                    'peer_id': client_id,
+                    'peer_private_addr': list(client_a['private_addr']),
+                    'peer_public_addr': list(client_a['public_addr'])
+                }
+                sock.sendto(json.dumps(response_b).encode(), client_b['public_addr'])
+                
+                logging.info(f"Обмен информацией между {client_id} и {target_id}")
+                
         except Exception as e:
-            logging.error(f"Error: {e}")
+            logging.error(f"Ошибка: {e}")
 
 if __name__ == "__main__":
-    server = RendezvousServer()
+    host = sys.argv[1] if len(sys.argv) > 1 else '0.0.0.0'
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else 8888
+    
+    server = RendezvousServer(host, port)
     server.start()
